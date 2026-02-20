@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Save, Download } from 'lucide-react'
+import { ArrowLeft, Save, Download, Play, Square, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SaveIndicator } from './save-indicator'
 
@@ -10,13 +10,17 @@ interface NavigationProps {
   isSaved?: boolean
   onDownload?: () => void
   showBackButton?: boolean
+  onStartGenerating?: () => void
+  isGenerating?: boolean
 }
 
-export function Navigation({ 
-  title = 'ClgReportAI', 
-  isSaved, 
+export function Navigation({
+  title = 'ClgReportAI',
+  isSaved,
   onDownload,
-  showBackButton = true 
+  showBackButton = true,
+  onStartGenerating,
+  isGenerating
 }: NavigationProps) {
   const router = useRouter()
 
@@ -35,7 +39,7 @@ export function Navigation({
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             )}
-            
+
             <div className="flex items-center gap-2">
               <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-500" />
               <h1 className="text-lg font-bold text-foreground truncate">{title}</h1>
@@ -44,7 +48,29 @@ export function Navigation({
 
           <div className="flex items-center gap-3">
             {isSaved !== undefined && <SaveIndicator isSaved={isSaved} />}
-            
+
+            {onStartGenerating && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={onStartGenerating}
+                disabled={isGenerating}
+                className="bg-cyan-600 hover:bg-cyan-700 text-white"
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2 fill-current" />
+                    Start Generating
+                  </>
+                )}
+              </Button>
+            )}
+
             {onDownload && (
               <Button
                 variant="outline"

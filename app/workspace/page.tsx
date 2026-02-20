@@ -114,13 +114,13 @@ What would you like to focus on first?`,
         // In production, you'd have more sophisticated parsing
         const sections = state.reportContent.sections.length === 0
           ? [
-              {
-                id: '1',
-                title: 'Generated Content',
-                content: result.content,
-                codeBlocks: [],
-              },
-            ]
+            {
+              id: '1',
+              title: 'Generated Content',
+              content: result.content,
+              codeBlocks: [],
+            },
+          ]
           : state.reportContent.sections
 
         updateReportContent({ sections })
@@ -129,7 +129,7 @@ What would you like to focus on first?`,
       setIsSaved(true)
     } catch (error) {
       console.error('Error calling Gemini API:', error)
-      
+
       // Add error message
       addMessage({
         role: 'assistant',
@@ -137,6 +137,87 @@ What would you like to focus on first?`,
       })
 
       toast.error(error instanceof Error ? error.message : 'Failed to generate content')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleStartGenerating = async () => {
+    const userPrompt = 'Generate the complete report following all provided constraints and content.'
+    addMessage({
+      role: 'user',
+      content: userPrompt,
+    })
+
+    setIsLoading(true)
+    setIsSaved(false)
+
+    try {
+      const response = await fetch('/api/generate/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userMessage: userPrompt,
+          sampleDocument: state.sampleDocument?.content || '',
+          contentDocument: state.newContent?.content || '',
+          constraints: state.constraints,
+          previousMessages: state.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate content')
+      }
+
+      if (!response.body) {
+        throw new Error('No stream body received')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let done = false
+      let fullContent = ''
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read()
+        done = doneReading
+
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true })
+          fullContent += chunk
+
+          // Live preview update
+          updateReportContent({
+            sections: [
+              {
+                id: 'live-generate',
+                title: 'Live Generation',
+                content: fullContent,
+                codeBlocks: [],
+              },
+            ],
+          })
+        }
+      }
+
+      addMessage({
+        role: 'assistant',
+        content: fullContent,
+      })
+
+      setIsSaved(true)
+    } catch (error) {
+      console.error('Streaming error:', error)
+      toast.error('Failed to stream generation')
+      addMessage({
+        role: 'assistant',
+        content: `I encountered an error while streaming. Please try again.`,
+      })
     } finally {
       setIsLoading(false)
     }
@@ -158,6 +239,8 @@ What would you like to focus on first?`,
         title="ClgReportAI Workspace"
         isSaved={isSaved}
         showBackButton={true}
+        onStartGenerating={handleStartGenerating}
+        isGenerating={isLoading}
       />
 
       <div className="flex-1 overflow-hidden">

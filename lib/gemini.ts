@@ -1,5 +1,5 @@
 import { google } from '@ai-sdk/google';
-import { generateText } from 'ai';
+import { generateText, streamText } from 'ai';
 
 /**
  * Configuration & Environment Checks
@@ -41,9 +41,9 @@ ${context.sampleDocument}
 ${context.contentDocument}
 
 ## SPECIFIC CONSTRAINTS:
-${context.constraints.length > 0 
-    ? context.constraints.map((c) => `- ${c}`).join('\n') 
-    : '- Maintain professional tone and standard markdown.'}
+${context.constraints.length > 0
+      ? context.constraints.map((c) => `- ${c}`).join('\n')
+      : '- Maintain professional tone and standard markdown.'}
 `;
 
   try {
@@ -73,6 +73,51 @@ Always output high-quality Markdown. Explain your formatting decisions briefly a
     console.error('Gemini Generation Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown generation error';
     throw new Error(`[ReportGen AI] Generation Failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Streams a formatted document based on a sample style and specific content.
+ */
+export async function streamDocumentWithAI(
+  userMessage: string,
+  context: DocumentContext,
+  previousMessages: Array<{ role: 'user' | 'assistant'; content: string }> = []
+) {
+  const contextMessage = `
+## SAMPLE DOCUMENT (Format Reference):
+${context.sampleDocument}
+
+## CONTENT TO REFORMAT:
+${context.contentDocument}
+
+## SPECIFIC CONSTRAINTS:
+${context.constraints.length > 0
+      ? context.constraints.map((c) => `- ${c}`).join('\n')
+      : '- Maintain professional tone and standard markdown.'}
+`;
+
+  try {
+    const stream = await streamText({
+      model: google(MODEL_ID),
+      system: `You are an expert document formatter and content specialist. 
+Your primary goal is to take the "Content to Reformat" and apply the exact structural, stylistic, and formatting patterns found in the "Sample Document". 
+Always output high-quality Markdown. Make sure it looks like a clean A4 document when rendered. Do NOT output a JSON object or code dump. Make sure headers, bold text, and code blocks match the sample's aesthetic.`,
+      messages: [
+        ...previousMessages,
+        {
+          role: 'user',
+          content: `${contextMessage}\n\nUser Request: ${userMessage}`,
+        },
+      ],
+      temperature: 0.7,
+    });
+
+    return stream;
+  } catch (error) {
+    console.error('Gemini Stream Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown stream error';
+    throw new Error(`[ReportGen AI] Stream Failed: ${errorMessage}`);
   }
 }
 
