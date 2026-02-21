@@ -103,7 +103,12 @@ export function DocumentPreview({
                     className="w-full h-full min-h-[200px] p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded font-mono text-sm text-slate-800 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
                 ) : (
-                  <div className="prose prose-slate dark:prose-invert max-w-none text-slate-900 dark:text-slate-100">
+                  <div className={`prose prose-slate dark:prose-invert max-w-none text-slate-900 dark:text-slate-100 ${section.isUpdating ? 'animate-pulse opacity-50' : ''}`}>
+                    {section.isUpdating && (
+                      <span className="text-xs font-bold uppercase text-cyan-500 mb-2 block animate-pulse">
+                        Updating slot...
+                      </span>
+                    )}
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {section.content}
                     </ReactMarkdown>

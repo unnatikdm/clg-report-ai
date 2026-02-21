@@ -1,5 +1,6 @@
 import { google } from '@ai-sdk/google';
-import { generateText, streamText } from 'ai';
+import { generateText, streamText, generateObject } from 'ai';
+import { z } from 'zod';
 
 /**
  * Configuration & Environment Checks
@@ -141,5 +142,66 @@ export async function analyzeDocument(documentContent: string): Promise<string> 
     console.error('Gemini Analysis Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown analysis error';
     throw new Error(`[ReportGen AI] Analysis Failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Generates a targeted JSON patch for a specific document tree.
+ * Prevents full document regeneration by returning block-level updates.
+ */
+export async function generateDocumentPatchWithAI(
+  userMessage: string,
+  context: DocumentContext,
+  currentTreeContext: string,
+  previousMessages: Array<{ role: 'user' | 'assistant'; content: string }> = []
+) {
+  const contextMessage = `
+## TARGET DOCUMENT SKELETON (Doc 2 Sections - Patch these specific blockIds):
+${currentTreeContext}
+
+## CURRENT CONTENT SOURCES (Doc 2 Original text):
+${context.contentDocument}
+
+## STYLE & STRUCTURE REFERENCE (Doc 1 - Learn layout from this, DO NOT patch this):
+${context.sampleDocument}
+
+## CONSTRAINTS:
+${context.constraints.length > 0
+      ? context.constraints.map((c) => `- ${c}`).join('\n')
+      : 'Maintain standard markdown.'}
+`;
+
+  try {
+    const { object } = await generateObject({
+      model: google(MODEL_ID),
+      system: `You are an expert Document State Manager. Your goal is to apply "Targeted Injection" (Surgical Mapping) to a Document Tree.
+1. Use the 'STYLE & STRUCTURE REFERENCE' strictly to learn formatting and layout. Do NOT edit it.
+2. Analyze the 'TARGET DOCUMENT SKELETON'. Identify the IDs of the blocks that need updating or transforming based on the user's request and the learned layout.
+3. Read the 'CURRENT CONTENT SOURCES' to get the original unformatted content that belongs in the target block(s).
+4. Return an array of Patch objects. Each patch must contain the 'blockId' (exactly matching an ID from the skeleton) and the 'newContent' (formatted as clean markdown).
+Only generate patches for blocks that actually change. Avoid touching blocks outside the scope of the request. Ensure the content matches the tone and structural layout learned from the reference document.`,
+      messages: [
+        ...previousMessages,
+        {
+          role: 'user',
+          content: `${contextMessage}\n\nUser Request: ${userMessage}`,
+        },
+      ],
+      schema: z.object({
+        patches: z.array(
+          z.object({
+            blockId: z.string().describe("The ID of the block to patch, exactly as it appears in the Skeleton."),
+            newContent: z.string().describe("The new markdown content for this specific block."),
+          })
+        ).describe("Array of delta updates to apply to the document."),
+      }),
+      temperature: 0.3, // Lower temperature for structured JSON mapping
+    });
+
+    return object.patches;
+  } catch (error) {
+    console.error('Gemini Patch Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown patching error';
+    throw new Error(`[ReportGen AI] Patch Failed: ${errorMessage}`);
   }
 }

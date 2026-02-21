@@ -20,7 +20,8 @@ export interface Section {
   id: string
   title: string
   content: string
-  codeBlocks: string[] // IDs of code blocks
+  codeBlocks?: string[] // IDs of code blocks
+  isUpdating?: boolean
 }
 
 export interface ReportContent {

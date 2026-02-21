@@ -12,9 +12,11 @@ import { ConversationPanel } from '@/components/workspace/conversation-panel'
 import { DocumentPreview } from '@/components/workspace/document-preview'
 import { ConstraintChips } from '@/components/workspace/constraint-chips'
 import { ContextIndicator } from '@/components/workspace/context-indicator'
-import { useWorkspaceState, Message } from '@/hooks/use-workspace-state'
+import { useWorkspaceState, Message, Section } from '@/hooks/use-workspace-state'
 import { useLocalStorage } from '@/hooks/use-local-storage'
 import { toast } from 'sonner'
+import { parseSections } from '@/lib/doc-parser'
+import { applyDocumentPatch, DocumentPatch } from '@/lib/document-reducer'
 
 export default function WorkspacePage() {
   const router = useRouter()
@@ -107,11 +109,8 @@ What would you like to focus on first?`,
         content: result.content,
       })
 
-      // Parse response to update report content if needed
       const lowerContent = content.toLowerCase()
       if (lowerContent.includes('generate') || lowerContent.includes('create')) {
-        // Extract sections from AI response (basic parsing)
-        // In production, you'd have more sophisticated parsing
         const sections = state.reportContent.sections.length === 0
           ? [
             {
@@ -142,8 +141,9 @@ What would you like to focus on first?`,
     }
   }
 
+
   const handleStartGenerating = async () => {
-    const userPrompt = 'Generate the complete report following all provided constraints and content.'
+    const userPrompt = 'Perform targeted injection: update the required slots using the new content and apply constraints.'
     addMessage({
       role: 'user',
       content: userPrompt,
@@ -153,7 +153,30 @@ What would you like to focus on first?`,
     setIsSaved(false)
 
     try {
-      const response = await fetch('/api/generate/stream', {
+      // Step 1: Establish Skeleton if it doesn't exist
+      let currentSections = state.reportContent.sections
+      if (currentSections.length === 0 && state.newContent) {
+        currentSections = parseSections(state.newContent.content).map((sec) => ({
+          ...sec,
+          codeBlocks: []
+        }))
+        updateReportContent({ sections: currentSections })
+      }
+
+      // Mark all as updating for a nice UI effect while waiting
+      updateReportContent({
+        sections: currentSections.map(s => ({ ...s, isUpdating: true }))
+      })
+
+      const currentTreeContext = JSON.stringify(
+        currentSections.map(s => ({
+          id: s.id,
+          title: s.title,
+        }))
+      )
+
+      // Step 2: Request the Patches
+      const response = await fetch('/api/generate/patch', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,6 +186,7 @@ What would you like to focus on first?`,
           sampleDocument: state.sampleDocument?.content || '',
           contentDocument: state.newContent?.content || '',
           constraints: state.constraints,
+          currentTreeContext,
           previousMessages: state.messages.map((m) => ({
             role: m.role,
             content: m.content,
@@ -171,52 +195,41 @@ What would you like to focus on first?`,
       })
 
       if (!response.ok) {
-        throw new Error('Failed to generate content')
+        throw new Error('Failed to generate patch')
       }
 
-      if (!response.body) {
-        throw new Error('No stream body received')
-      }
+      const { patches } = await response.json() as { patches: DocumentPatch[] }
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder('utf-8')
-      let done = false
-      let fullContent = ''
+      // Step 3: Apply Patches via Reducer
+      const updatedSections = applyDocumentPatch(
+        currentSections,
+        patches
+      )
 
-      while (!done) {
-        const { value, done: doneReading } = await reader.read()
-        done = doneReading
+      updateReportContent({ sections: updatedSections as Section[] })
 
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true })
-          fullContent += chunk
-
-          // Live preview update
-          updateReportContent({
-            sections: [
-              {
-                id: 'live-generate',
-                title: 'Live Generation',
-                content: fullContent,
-                codeBlocks: [],
-              },
-            ],
-          })
-        }
-      }
+      const summaryMessage = patches.length > 0
+        ? `I have surgically injected ${patches.length} updated slot(s): ${patches.map(p => p.blockId).join(', ')}.`
+        : "No sections required updating."
 
       addMessage({
         role: 'assistant',
-        content: fullContent,
+        content: summaryMessage,
       })
 
       setIsSaved(true)
     } catch (error) {
-      console.error('Streaming error:', error)
-      toast.error('Failed to stream generation')
+      console.error('Patching error:', error)
+      toast.error('Failed to patch generation')
+
+      // Remove loading state on error
+      updateReportContent({
+        sections: state.reportContent.sections.map(s => ({ ...s, isUpdating: false }))
+      })
+
       addMessage({
         role: 'assistant',
-        content: `I encountered an error while streaming. Please try again.`,
+        content: `I encountered an error while patching. Please try again.`,
       })
     } finally {
       setIsLoading(false)
